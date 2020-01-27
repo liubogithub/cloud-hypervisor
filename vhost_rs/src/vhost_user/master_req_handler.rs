@@ -11,7 +11,11 @@ use std::sync::{Arc, Mutex};
 
 use super::connection::Endpoint;
 use super::message::*;
-use super::{Error, HandlerResult, Result};
+use super::{Error, Result};
+
+fn error_code<T>(err: std::io::Error) -> Result<T> {
+    Err(Error::ReqHandlerError(err))
+}
 
 /// Trait to handle vhost-user requests from the slave to the master.
 pub trait VhostUserMasterReqHandler {
@@ -19,25 +23,25 @@ pub trait VhostUserMasterReqHandler {
     // fn handle_vring_host_notifier(&mut self, area: VhostUserVringArea, fd: RawFd);
 
     /// Handle device configuration change notifications from the slave.
-    fn handle_config_change(&mut self) -> HandlerResult<()> {
-        Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
+    fn handle_config_change(&mut self) -> Result<()> {
+        error_code(std::io::Error::from_raw_os_error(libc::ENOSYS))
     }
 
     /// Handle virtio-fs map file requests from the slave.
-    fn fs_slave_map(&mut self, _fs: &VhostUserFSSlaveMsg, fd: RawFd) -> HandlerResult<()> {
+    fn fs_slave_map(&mut self, _fs: &VhostUserFSSlaveMsg, fd: RawFd) -> Result<()> {
         // Safe because we have just received the rawfd from kernel.
         unsafe { libc::close(fd) };
-        Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
+        error_code(std::io::Error::from_raw_os_error(libc::ENOSYS))
     }
 
     /// Handle virtio-fs unmap file requests from the slave.
-    fn fs_slave_unmap(&mut self, _fs: &VhostUserFSSlaveMsg) -> HandlerResult<()> {
-        Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
+    fn fs_slave_unmap(&mut self, _fs: &VhostUserFSSlaveMsg) -> Result<()> {
+        error_code(std::io::Error::from_raw_os_error(libc::ENOSYS))
     }
 
     /// Handle virtio-fs sync file requests from the slave.
-    fn fs_slave_sync(&mut self, _fs: &VhostUserFSSlaveMsg) -> HandlerResult<()> {
-        Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
+    fn fs_slave_sync(&mut self, _fs: &VhostUserFSSlaveMsg) -> Result<()> {
+        error_code(std::io::Error::from_raw_os_error(libc::ENOSYS))
     }
 }
 
@@ -112,11 +116,7 @@ impl<S: VhostUserMasterReqHandler> MasterReqHandler<S> {
         let res = match hdr.get_code() {
             SlaveReq::CONFIG_CHANGE_MSG => {
                 self.check_msg_size(&hdr, size, 0)?;
-                self.backend
-                    .lock()
-                    .unwrap()
-                    .handle_config_change()
-                    .map_err(Error::ReqHandlerError)
+                self.backend.lock().unwrap().handle_config_change()
             }
             SlaveReq::FS_MAP => {
                 let msg = self.extract_msg_body::<VhostUserFSSlaveMsg>(&hdr, size, &buf)?;
@@ -124,23 +124,14 @@ impl<S: VhostUserMasterReqHandler> MasterReqHandler<S> {
                     .lock()
                     .unwrap()
                     .fs_slave_map(msg, rfds.unwrap()[0])
-                    .map_err(Error::ReqHandlerError)
             }
             SlaveReq::FS_UNMAP => {
                 let msg = self.extract_msg_body::<VhostUserFSSlaveMsg>(&hdr, size, &buf)?;
-                self.backend
-                    .lock()
-                    .unwrap()
-                    .fs_slave_unmap(msg)
-                    .map_err(Error::ReqHandlerError)
+                self.backend.lock().unwrap().fs_slave_unmap(msg)
             }
             SlaveReq::FS_SYNC => {
                 let msg = self.extract_msg_body::<VhostUserFSSlaveMsg>(&hdr, size, &buf)?;
-                self.backend
-                    .lock()
-                    .unwrap()
-                    .fs_slave_sync(msg)
-                    .map_err(Error::ReqHandlerError)
+                self.backend.lock().unwrap().fs_slave_sync(msg)
             }
             _ => Err(Error::InvalidMessage),
         };

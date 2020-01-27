@@ -24,7 +24,8 @@ use vhost_rs::vhost_user::message::{
     VHOST_USER_FS_SLAVE_ENTRIES,
 };
 use vhost_rs::vhost_user::{
-    HandlerResult, Master, MasterReqHandler, VhostUserMaster, VhostUserMasterReqHandler,
+    Error as VhostUserError, Master, MasterReqHandler, Result as VhostUserResult, VhostUserMaster,
+    VhostUserMasterReqHandler,
 };
 use vhost_rs::VhostBackend;
 use vm_device::{Migratable, MigratableError, Pausable, Snapshotable};
@@ -36,18 +37,22 @@ const CONFIG_SPACE_NUM_QUEUES_SIZE: usize = 4;
 const CONFIG_SPACE_SIZE: usize = CONFIG_SPACE_TAG_SIZE + CONFIG_SPACE_NUM_QUEUES_SIZE;
 const NUM_QUEUE_OFFSET: usize = 1;
 
+fn error_code<T>(err: io::Error) -> VhostUserResult<T> {
+    Err(VhostUserError::ReqHandlerError(err))
+}
+
 struct SlaveReqHandler {
     cache_size: u64,
     mmap_cache_addr: u64,
 }
 
 impl VhostUserMasterReqHandler for SlaveReqHandler {
-    fn handle_config_change(&mut self) -> HandlerResult<()> {
+    fn handle_config_change(&mut self) -> VhostUserResult<()> {
         debug!("handle_config_change");
         Ok(())
     }
 
-    fn fs_slave_map(&mut self, fs: &VhostUserFSSlaveMsg, fd: RawFd) -> HandlerResult<()> {
+    fn fs_slave_map(&mut self, fs: &VhostUserFSSlaveMsg, fd: RawFd) -> VhostUserResult<()> {
         debug!("fs_slave_map");
 
         for i in 0..VHOST_USER_FS_SLAVE_ENTRIES {
@@ -57,7 +62,7 @@ impl VhostUserMasterReqHandler for SlaveReqHandler {
             }
 
             if fs.cache_offset[i] > self.cache_size {
-                return Err(io::Error::new(io::ErrorKind::Other, "Wrong offset"));
+                return error_code(io::Error::new(io::ErrorKind::Other, "Wrong offset"));
             }
 
             let addr = self.mmap_cache_addr + fs.cache_offset[i];
@@ -72,19 +77,19 @@ impl VhostUserMasterReqHandler for SlaveReqHandler {
                 )
             };
             if ret == libc::MAP_FAILED {
-                return Err(io::Error::last_os_error());
+                return error_code(io::Error::last_os_error());
             }
 
             let ret = unsafe { libc::close(fd) };
             if ret == -1 {
-                return Err(io::Error::last_os_error());
+                return error_code(io::Error::last_os_error());
             }
         }
 
         Ok(())
     }
 
-    fn fs_slave_unmap(&mut self, fs: &VhostUserFSSlaveMsg) -> HandlerResult<()> {
+    fn fs_slave_unmap(&mut self, fs: &VhostUserFSSlaveMsg) -> VhostUserResult<()> {
         debug!("fs_slave_unmap");
 
         for i in 0..VHOST_USER_FS_SLAVE_ENTRIES {
@@ -102,7 +107,7 @@ impl VhostUserMasterReqHandler for SlaveReqHandler {
             }
 
             if fs.cache_offset[i] > self.cache_size {
-                return Err(io::Error::new(io::ErrorKind::Other, "Wrong offset"));
+                return error_code(io::Error::new(io::ErrorKind::Other, "Wrong offset"));
             }
 
             let addr = self.mmap_cache_addr + fs.cache_offset[i];
@@ -117,14 +122,14 @@ impl VhostUserMasterReqHandler for SlaveReqHandler {
                 )
             };
             if ret == libc::MAP_FAILED {
-                return Err(io::Error::last_os_error());
+                return error_code(io::Error::last_os_error());
             }
         }
 
         Ok(())
     }
 
-    fn fs_slave_sync(&mut self, fs: &VhostUserFSSlaveMsg) -> HandlerResult<()> {
+    fn fs_slave_sync(&mut self, fs: &VhostUserFSSlaveMsg) -> VhostUserResult<()> {
         debug!("fs_slave_sync");
 
         for i in 0..VHOST_USER_FS_SLAVE_ENTRIES {
@@ -134,7 +139,7 @@ impl VhostUserMasterReqHandler for SlaveReqHandler {
             }
 
             if fs.cache_offset[i] > self.cache_size {
-                return Err(io::Error::new(io::ErrorKind::Other, "Wrong offset"));
+                return error_code(io::Error::new(io::ErrorKind::Other, "Wrong offset"));
             }
 
             let addr = self.mmap_cache_addr + fs.cache_offset[i];
@@ -142,7 +147,7 @@ impl VhostUserMasterReqHandler for SlaveReqHandler {
                 libc::msync(addr as *mut libc::c_void, fs.len[i] as usize, libc::MS_SYNC)
             };
             if ret == -1 {
-                return Err(io::Error::last_os_error());
+                return error_code(io::Error::last_os_error());
             }
         }
 
