@@ -234,6 +234,9 @@ impl Fs {
 
         // Create virtio device config space.
         // First by adding the tag.
+	if tag.len() > CONFIG_SPACE_TAG_SIZE {
+	    return Err(Error::InvalidTagLen);
+	}
         let mut config_space = tag.to_string().into_bytes();
         config_space.resize(CONFIG_SPACE_SIZE, 0);
 

@@ -97,5 +97,7 @@ pub enum Error {
     UsedAddress,
     /// Invalid features provided from vhost-user backend
     InvalidFeatures,
+    /// Invalid tag length
+    InvalidTagLen,
 }
 type Result<T> = std::result::Result<T, Error>;
