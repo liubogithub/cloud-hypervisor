@@ -10,11 +10,13 @@ use std::mem;
 use std::time::Duration;
 
 use libc;
+use vhost_rs::vhost_user::SlaveFsCacheReq;
 
 use crate::fuse;
 
 pub use fuse::FsOptions;
 pub use fuse::OpenOptions;
+pub use fuse::RemovemappingOne;
 pub use fuse::SetattrValid;
 pub use fuse::ROOT_ID;
 
@@ -1042,6 +1044,27 @@ pub trait FileSystem {
     ) -> io::Result<()> {
         Err(io::Error::from_raw_os_error(libc::ENOSYS))
     }
+
+    /// Setup a mapping so that guest can access files in DAX style.
+    #[allow(clippy::too_many_arguments)]
+    fn setupmapping(
+        &self,
+        _ctx: Context,
+        inode: Self::Inode,
+        handle: Self::Handle,
+        foffset: u64,
+        len: u64,
+        flags: u64,
+        moffset: u64,
+        vu_req: &mut SlaveFsCacheReq,
+    ) -> io::Result<()>;
+
+    fn removemapping(
+        &self,
+        _ctx: Context,
+        requests: Vec<RemovemappingOne>,
+        vu_req: &mut SlaveFsCacheReq,
+    ) -> io::Result<()>;
 
     /// Check file access permissions.
     ///

@@ -15,6 +15,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use libc;
+use vhost_rs::vhost_user::message::{VhostUserFSSlaveMsg, VhostUserFSSlaveMsgFlags};
+use vhost_rs::vhost_user::{SlaveFsCacheReq, VhostUserMasterReqHandler};
 use vm_memory::ByteValued;
 
 use crate::filesystem::{
@@ -909,6 +911,62 @@ impl FileSystem for PassthroughFs {
 
     fn unlink(&self, _ctx: Context, parent: Inode, name: &CStr) -> io::Result<()> {
         self.do_unlink(parent, name, 0)
+    }
+
+    fn setupmapping(
+        &self,
+        _ctx: Context,
+        inode: Inode,
+        _handle: Handle,
+        foffset: u64,
+        len: u64,
+        flags: u64,
+        moffset: u64,
+        vu_req: &mut SlaveFsCacheReq,
+    ) -> io::Result<()> {
+        debug!(
+            "setupmapping: ino {:?} foffset {} len {} flags {} moffset {}",
+            inode, foffset, len, flags, moffset
+        );
+
+        let mut msg: VhostUserFSSlaveMsg = Default::default();
+        msg.fd_offset[0] = foffset;
+        msg.cache_offset[0] = moffset;
+        msg.len[0] = len;
+        msg.flags[0] = if (flags & fuse::SetupmappingFlags::WRITE.bits()) != 0 {
+            VhostUserFSSlaveMsgFlags::MAP_W | VhostUserFSSlaveMsgFlags::MAP_R
+        } else {
+            VhostUserFSSlaveMsgFlags::MAP_R
+        };
+
+        let open_flags = if (flags & fuse::SetupmappingFlags::WRITE.bits()) != 0 {
+            libc::O_RDWR
+        } else {
+            libc::O_RDONLY
+        };
+
+        let file = self.open_inode(inode, open_flags as i32)?;
+        (*vu_req)
+            .fs_slave_map(&msg, file.as_raw_fd())
+            .or_else(|_| Err(io::Error::from_raw_os_error(libc::EINVAL)))
+    }
+
+    fn removemapping(
+        &self,
+        _ctx: Context,
+        requests: Vec<fuse::RemovemappingOne>,
+        vu_req: &mut SlaveFsCacheReq,
+    ) -> io::Result<()> {
+        let mut msg: VhostUserFSSlaveMsg = Default::default();
+
+        for (ind, req) in requests.iter().enumerate() {
+            msg.len[ind] = req.len;
+            msg.cache_offset[ind] = req.moffset;
+        }
+
+        (*vu_req)
+            .fs_slave_unmap(&msg)
+            .or_else(|_| Err(io::Error::from_raw_os_error(libc::EINVAL)))
     }
 
     fn read<W: io::Write + ZeroCopyWriter>(
