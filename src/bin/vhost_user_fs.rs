@@ -18,6 +18,7 @@ use std::sync::{Arc, RwLock};
 use std::{convert, error, fmt, io, process};
 
 use vhost_rs::vhost_user::message::*;
+use vhost_rs::vhost_user::SlaveFsCacheReq;
 use vhost_user_backend::{VhostUserBackend, VhostUserDaemon, Vring};
 use vhost_user_fs::descriptor_utils::{Reader, Writer};
 use vhost_user_fs::filesystem::FileSystem;
@@ -73,6 +74,8 @@ struct VhostUserFsBackend<F: FileSystem + Send + Sync + 'static> {
     mem: Option<GuestMemoryMmap>,
     kill_evt: EventFd,
     server: Arc<Server<F>>,
+    // handle request from slave to master
+    vu_req: Option<SlaveFsCacheReq>,
 }
 
 impl<F: FileSystem + Send + Sync + 'static> Clone for VhostUserFsBackend<F> {
@@ -81,6 +84,7 @@ impl<F: FileSystem + Send + Sync + 'static> Clone for VhostUserFsBackend<F> {
             mem: self.mem.clone(),
             kill_evt: self.kill_evt.try_clone().unwrap(),
             server: self.server.clone(),
+            vu_req: self.vu_req.clone(),
         }
     }
 }
@@ -91,6 +95,7 @@ impl<F: FileSystem + Send + Sync + 'static> VhostUserFsBackend<F> {
             mem: None,
             kill_evt: EventFd::new(EFD_NONBLOCK).map_err(|_| Error::CreateKillEventFd)?,
             server: Arc::new(Server::new(fs)),
+            vu_req: None,
         })
     }
 
@@ -106,7 +111,7 @@ impl<F: FileSystem + Send + Sync + 'static> VhostUserFsBackend<F> {
 
             let total = self
                 .server
-                .handle_message(reader, writer)
+                .handle_message(reader, writer, self.vu_req.as_mut())
                 .map_err(Error::ProcessQueue)?;
 
             used_desc_heads[used_count] = (head_index, total);
@@ -174,6 +179,10 @@ impl<F: FileSystem + Send + Sync + 'static> VhostUserBackend for VhostUserFsBack
         }
 
         Ok(false)
+    }
+
+    fn set_slave_req_fd(&mut self, vu_req: SlaveFsCacheReq) {
+        self.vu_req = Some(vu_req);
     }
 }
 
